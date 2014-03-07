@@ -1,0 +1,40 @@
+--Query1:
+CREATE TABLE Query1 (
+	num INTEGER PRIMARY KEY);
+
+--Query2 :
+CREATE TABLE Query2 (
+	wmname VARCHAR(20) PRIMARY KEY);
+
+--Query3 :
+CREATE TABLE Query3 (
+	cname VARCHAR(20),
+	wmname VARCHAR(20),
+	rating DOUBLE PRECISION NOT NULL,
+	PRIMARY KEY(cname, wmname));
+
+--Query4 :
+CREATE TABLE Query4 (
+	year INTEGER PRIMARY KEY,
+	avgRating DOUBLE PRECISION NOT NULL);
+
+--Query5:
+CREATE TABLE Query5 (
+	wmname VARCHAR(20) PRIMARY KEY);
+
+--Query6 :
+CREATE TABLE Query6 (
+	wname VARCHAR(20) NOT NULL,
+	wmname VARCHAR(20) NOT NULL,
+	mname VARCHAR(20) NOT NULL);
+
+--Query7 :
+CREATE TABLE Query7 (
+	wname VARCHAR(20) PRIMARY KEY,
+	avgRating DOUBLE PRECISION NOT NULL);
+
+
+
+
+
+

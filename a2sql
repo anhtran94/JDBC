@@ -1,0 +1,112 @@
+--QUERY1:
+INSERT INTO Query1
+(SELECT count(W.wid) AS num
+	FROM wine AS W, winemakers AS WM, countries AS C
+	WHERE W.wmid = WM.wmid AND WM.cid = C.cid AND C.cname ='Spain' AND W.wyear > 2000 AND W.msrp < 20 GROUP BY C.cname);
+
+--QUERY2:
+--create intermediate view: rosetable
+CREATE VIEW rosetable AS
+(SELECT W.wmid, count(W.wid) AS rose_count FROM wine W, winecolours WC WHERE W.wcid = WC.wcid AND WC.wcname = 'Rose' GROUP BY W.wmid);
+
+INSERT INTO Query2
+(SELECT WM.wmname AS wmname
+	FROM winemakers AS WM, rosetable AS RoseT
+	WHERE RoseT.wmid = WM.wmid AND RoseT.rose_count >= (SELECT max(rose_count) FROM rosetable)
+	ORDER BY WM.wmname ASC);
+
+--QUERY3:
+--create intermediate view: makerratings
+CREATE VIEW makerratings AS
+(SELECT WM.wmid, WM.cid, AVG(R.rating) AS mrating FROM winemakers AS WM, wine AS W, ratings AS R WHERE WM.wmid = W.wmid AND W.rid = R.rid GROUP BY WM.wmid, WM.cid);
+
+--create another intermediate view: MMRT standing for max makerratings, will select only one winemaker with maximum rating for each country
+CREATE VIEW MMRT AS
+(SELECT cid AS Maxcid, MAX(mrating) AS Maxmrating FROM makerratings GROUP BY cid);
+
+INSERT INTO Query3
+(SELECT C.cname, WM1.wmname, JoinMMRT1.mrating AS rating
+	FROM countries AS C, winemakers AS WM1,(SELECT makerratings.wmid, makerratings.mrating FROM makerratings, MMRT WHERE makerratings.cid = MMRT.maxcid AND makerratings.mrating >= MMRT.Maxmrating) AS JOINMMRT1	
+	WHERE WM1.wmid = JoinMMRT1.wmid AND WM1.cid = C.cid	
+	ORDER BY C.cname ASC, JoinMMRT1.mrating DESC);
+
+--QUERY4:
+--Create intermediate view: SYRT stands for Spain year ratings table
+CREATE VIEW SYRT AS
+(SELECT W.wyear AS year, AVG(R.rating) AS rating FROM wine AS W, ratings AS R, countries AS C, winemakers AS WM WHERE W.rid = R.rid AND W.wmid = WM.wmid AND WM.cid = C.cid AND W.wyear >= 2001 AND W.wyear <= 2010 AND C.cname = 'Spain' GROUP BY W.wyear);
+
+INSERT INTO Query4
+(SELECT SYRT1.year AS year, SYRT1.rating AS avgRating
+	FROM SYRT AS SYRT1
+	WHERE SYRT1.rating = (SELECT max(SYRT2.rating) FROM SYRT AS SYRT2 WHERE SYRT2.rating <> (SELECT max(SYRT3.rating) FROM SYRT AS SYRT3))
+	ORDER BY SYRT1.year ASC);
+
+--Query5:
+--note there is one one attribute selected
+-- if more attributes were selected should proceed as in query6
+INSERT INTO Query5
+((SELECT DISTINCT WM1.wmname AS wmname FROM winemakers AS WM1, wine AS W1, countries AS C1, winecolours AS WC1 WHERE W1.wmid = WM1.wmid AND WM1.cid = C1.cid AND W1.wcid = WC1.wcid AND C1.cname = 'Spain' ORDER BY WM1.wmname ASC)
+EXCEPT
+(SELECT WM2.wmname AS wmname FROM winemakers AS WM2, wine AS W2, countries AS C2, winecolours AS WC2 WHERE W2.wmid = WM2.wmid AND WM2.cid = C2.cid AND W2.wcid = WC2.wcid AND C2.cname = 'Spain' AND WC2.wcname != 'Rose'));
+
+--Query6:
+--Create intermediate view: bbywine stands for best before year wine (table)
+--the table replaces wyear and bestbeforeny: expiryyear= wyear + bestbeforeny
+CREATE VIEW bbywine AS
+(SELECT wid, wcid, rid, wmid, wname, (wyear + bestbeforeny) AS expiryyear, msrp FROM wine);
+
+--Get info about merchants with a discount and store it in intermediate view
+CREATE VIEW DiscountMer AS
+(SELECT bbywine.wid, winemakers.wmid, merchants.mid, bbywine.wname, winemakers.wmname, merchants.mname, bbywine.msrp, pricelist.price, pricelist.startmonth, pricelist.startyear, bbywine.expiryyear, pricelist.endmonth, pricelist.endyear
+FROM bbywine, winemakers, merchants, pricelist
+WHERE bbywine.wmid = winemakers.wmid AND pricelist.wid = bbywine.wid AND pricelist.mid = merchants.mid AND pricelist.price < bbywine.msrp);
+
+--Now take off all wines with a discount before last year of best comsumption passed
+INSERT INTO Query6
+(SELECT DISTINCT DiscountMer.wname, DiscountMer.wmname, DiscountMer.mname FROM DiscountMer WHERE DiscountMer.wid !=  ALL ((SELECT DM1.wid FROM DiscountMer as DM1 WHERE DM1.endyear <= DM1.expiryyear) UNION (SELECT DM2.wid FROM DiscountMer as DM2 WHERE DM2.startyear < DM2.expiryyear AND DM2.endyear >= DM2.expiryyear)) ORDER BY wname ASC, wmname ASC, mname ASC);
+
+--assuming product lifetime is: january 1 wyear to december 12 wyear+bestbeforeny
+
+--Query7:
+--Create intermediate view: spanish wine colors table (SWC) 
+--holds colors of wines made by spanish winemakers
+CREATE VIEW SWC AS
+(SELECT DISTINCT WM.wmid, WC.wcname AS color FROM winemakers as WM, wine as W, winecolours as WC, countries as C WHERE WM.wmid = W.wmid AND W.wcid = WC.wcid AND WM.cid = C.cid AND C.cname = 'Spain');
+
+--Create intermediate view: SRandRoseWM
+--holds wmid of spanish red and rose wine makers
+CREATE VIEW SRandRoseWM AS
+(SELECT DISTINCT temp.wmid FROM (SELECT SWC1.wmid as wmid, SWC1.color as color1, SWC2.color as color2 FROM SWC as SWC1, SWC as SWC2 WHERE SWC1.wmid = SWC2.wmid AND SWC1.color = 'Red' AND SWC2.color = 'Rose') AS temp);
+
+--Create intermediate view for information of 
+--spanish red and rose wine makers satifying conditions
+CREATE VIEW SRRWMinfo AS
+(SELECT DISTINCT SRRWM.wmid, C.cid, W.wid, WC.wcid, PL.mid, R.rid, C.cname, PL.startyear, PL.startmonth, PL.endyear, PL.endmonth, PL.price, W.msrp, R.rating
+
+FROM SRandRoseWM as SRRWM, wine as W, winemakers as WM, winecolours as WC, countries as C, merchants as M, ratings as R, pricelist as PL
+
+WHERE SRRWM.wmid = WM.wmid AND SRRWM.wmid = W.wmid AND WM.cid = C.cid AND R.rid = W.rid AND PL.wid = W.wid AND W.wcid = WC.wcid AND C.cname = 'Spain' AND (WC.wcname = 'Red' OR WC.wcname = 'Rose') AND PL.price < W.msrp AND (((PL.startyear <= 2013 AND 2013 < PL.endyear) OR (2013 = PL.endyear AND 10 <= PL.endmonth)) OR ((PL.endyear >= 2013 AND 2013 > PL.startyear) OR (2013 = PL.startyear AND PL.startyear <= 10))));
+
+--find the averages of selected winemaker ratings from SRRWMinfo
+--Create intermediate view: spanish red and rose wine maker ratings
+--SRRWMR
+CREATE VIEW SRRWMR AS
+(SELECT wmid, AVG(DISTINCT rating) as avgRating
+FROM SRRWMinfo GROUP BY wmid);
+
+--Now find winemakers with max, min reputation
+--overkill: following assignment requirements!
+--Create intermediate view:
+CREATE VIEW temp1 AS
+(SELECT WM.wmname, SRRWMR.avgRating
+FROM winemakers as WM, SRRWMR
+WHERE WM.wmid = SRRWMR.wmid AND SRRWMR.avgRating = (SELECT MAX(SRRWMR1.avgRating) FROM SRRWMR as SRRWMR1));
+--Create intermediate view:
+CREATE VIEW temp2 AS
+(SELECT WM.wmname, SRRWMR.avgRating
+FROM winemakers as WM, SRRWMR
+WHERE WM.wmid = SRRWMR.wmid AND SRRWMR.avgRating = (SELECT MIN(SRRWMR2.avgRating) FROM SRRWMR as SRRWMR2));
+
+INSERT INTO Query7
+(SELECT * FROM ((select * from temp1) UNION ALL (select * from temp2)) AS temp ORDER BY temp.avgRating DESC, temp.wmname ASC);
+
